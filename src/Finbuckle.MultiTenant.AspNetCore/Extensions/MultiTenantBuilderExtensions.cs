@@ -1,4 +1,4 @@
-// Copyright Finbuckle LLC, Andrew White, and Contributors.
+﻿// Copyright Finbuckle LLC, Andrew White, and Contributors.
 // Refer to the solution LICENSE file for more information.
 
 using Finbuckle.MultiTenant.Abstractions;
@@ -103,6 +103,16 @@ public static class MultiTenantBuilderExtensions
         builder.WithPerTenantAuthenticationCore(config);
         builder.WithPerTenantAuthenticationConventions();
         builder.WithRemoteAuthenticationCallbackStrategy();
+
+        return builder;
+    }
+
+    public static MultiTenantBuilder<TTenantInfo> WithFilter<TTenantInfo>(
+        this MultiTenantBuilder<TTenantInfo> builder, Action<FilteringOptions> config)
+        where TTenantInfo : class, ITenantInfo, new()
+    {
+        config ??= _ => { };
+        builder.Services.Configure(config);
 
         return builder;
     }

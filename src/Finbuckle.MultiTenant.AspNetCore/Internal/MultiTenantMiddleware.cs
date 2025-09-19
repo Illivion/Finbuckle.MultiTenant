@@ -18,38 +18,56 @@ public class MultiTenantMiddleware
 {
     private readonly RequestDelegate next;
     private readonly ShortCircuitWhenOptions? options;
+    private readonly FilteringOptions? filteringOptions;
 
     public MultiTenantMiddleware(RequestDelegate next)
     {
             this.next = next;
         }
 
-    public MultiTenantMiddleware(RequestDelegate next, IOptions<ShortCircuitWhenOptions> options)
+    public MultiTenantMiddleware(RequestDelegate next, IOptions<ShortCircuitWhenOptions> options, IOptions<FilteringOptions> filteringOptions)
     {
             this.next = next;
             this.options = options.Value;
+            this.filteringOptions = filteringOptions.Value;
         }
 
     public async Task Invoke(HttpContext context)
     {
-            if (context.GetEndpoint()?.Metadata.GetMetadata<IExcludeFromMultiTenantResolutionMetadata>() is { ExcludeFromResolution: true })
+        var endpoint = context.GetEndpoint();
+        
+        var endpointMetadata = endpoint?.Metadata;
+
+        if (filteringOptions?.FilterDelegate != null && endpointMetadata != null)
+        {
+            var filterRequest = filteringOptions.FilterDelegate(context);
+
+            if (filterRequest)
             {
                 await next(context);
                 return;
             }
+        }
 
-            context.RequestServices.GetRequiredService<IMultiTenantContextAccessor>();
-            var mtcSetter = context.RequestServices.GetRequiredService<IMultiTenantContextSetter>();
-            
-            var resolver = context.RequestServices.GetRequiredService<ITenantResolver>();
-            
-            var multiTenantContext = await resolver.ResolveAsync(context).ConfigureAwait(false);
-            mtcSetter.MultiTenantContext = multiTenantContext;
-            context.Items[typeof(IMultiTenantContext)] = multiTenantContext;
-            
-            if (options?.Predicate is null || !options.Predicate(multiTenantContext))
-                await next(context);
-            else if (options.RedirectTo is not null)
-                context.Response.Redirect(options.RedirectTo.ToString());
+        if (endpointMetadata?.GetMetadata<IExcludeFromMultiTenantResolutionMetadata>() is
+            { ExcludeFromResolution: true })
+        {
+            await next(context);
+            return;
+        }
+
+        context.RequestServices.GetRequiredService<IMultiTenantContextAccessor>();
+        var mtcSetter = context.RequestServices.GetRequiredService<IMultiTenantContextSetter>();
+
+        var resolver = context.RequestServices.GetRequiredService<ITenantResolver>();
+
+        var multiTenantContext = await resolver.ResolveAsync(context).ConfigureAwait(false);
+        mtcSetter.MultiTenantContext = multiTenantContext;
+        context.Items[typeof(IMultiTenantContext)] = multiTenantContext;
+
+        if (options?.Predicate is null || !options.Predicate(multiTenantContext))
+            await next(context);
+        else if (options.RedirectTo is not null)
+            context.Response.Redirect(options.RedirectTo.ToString());
     }
 }
